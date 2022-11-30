@@ -4,6 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\Todo;
 use Illuminate\Http\Request;
+use App\Models\User;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Auth;
+use Carbon\Carbon;
 
 class TodoController extends Controller
 {
@@ -12,19 +16,102 @@ class TodoController extends Controller
      *
      * @return \Illuminate\Http\Response
      */
-    public function index()
+
+    public function login()
     {
-        //menampilkan halaman awal
+        return view('dashboard.login');
     }
 
-    /**
-     * Show the form for creating a new resource.
-     *
-     * @return \Illuminate\Http\Response
-     */
+    public function register()
+    {
+        return view('dashboard.register');
+    }
+
+    public function inputRegister(Request $request)
+    {
+        // testing hasil input
+        // dd($request->all());
+        // validasi atau aturan value column pada db
+        $request->validate([
+            'email' => 'required',
+            'name' => 'required|min:4|max:50',
+            'username' => 'required|min:4|max:8',
+            'password' => 'required',
+        ]);
+        // tambah data ke db bagian table users
+        User::create([
+            'name' => $request->name,
+            'username' => $request->username,
+            'email' => $request->email,
+            'password' => Hash::make($request->password),
+        ]);
+        // apabila berhasil, bkl diarahin ke hlmn login dengan pesan success
+        return redirect('/')->with('success', 'berhasil membuat akun!');
+    }
+
+    public function auth(Request $request)
+    {
+        $request->validate([
+            'username' => 'required|exists:users,username',
+            'password' => 'required',
+        ],[
+            'username.exists' => "This username doesn't exists"
+        ]);
+
+        $user = $request->only('username', 'password');
+        if (Auth::attempt($user)) {
+            return redirect()->route('todo.index');
+        } else {
+            // dd('salah');
+            return redirect('/')->with('fail', "Gagal login, periksa dan coba lagi!");
+        }
+    }
+
+    public function logout()
+    {
+        // menghapus history login
+        Auth::logout();
+        // mengarahkan ke halaman login lagi
+        return redirect('/');
+    }
+
+    public function index()
+    {
+        //menampilkan halaman awal, semua data
+        // cari data todo yang punya user_id nya sama dengan id orang yang login. kalo ketemu datanya diambil
+        $todos = Todo::where([
+            ['user_id', '=', Auth::user()->id],
+            ['status', '=', 0]
+        ])->get();
+        //tampilin file index di folder dashboard dan bawa data dari variable yang namanya todos ke fil tersebut
+        return view('dashboard.index', compact('todos'));
+    }
+
+    public function complated()
+    {
+        $todos = Todo::where([
+            ['user_id', '=', Auth::user()->id],
+            ['status', '=', 1],
+            ])->get();
+        return view('dashboard.complated', compact('todos'));
+    }
+    public function updateComplated($id)
+    {
+        //$id pada parameter mengambil data dari path dinamis{id}
+        Todo::where('id', $id)->update([
+            'status' => 1,
+            'done_time' => Carbon::now(),
+        ]);
+        //kalau berhasil bakal diarahin ke halaman list todo yg complated dengan pemberitauan
+        return redirect()->route('todo.complated')->with('done', 'sudah selesai dikerjakan!');
+    }
+    
+
+
     public function create()
     {
-        //menampilkan halaman input form tambah data`
+        //menampilkan halaman input form tambah data
+        return view('dashboard.create');
     }
 
     /**
@@ -35,7 +122,23 @@ class TodoController extends Controller
      */
     public function store(Request $request)
     {
-        //mengirim data ke database (data-baru) /-menambahkan data baru
+        //mengirim data ke database (data baru) / menambahkan data baru ke db
+            //validasi
+            $request->validate([
+                'title' => 'required|min:3',
+                'date' => 'required',
+                'description' => 'required|min:8',
+            ]);
+            //tambah data ke database
+            Todo::create([
+                'title' => $request->title,
+                'description' => $request->description,
+                'date' => $request->date,
+                'status' => 0,
+                'user_id' => Auth::user()->id,
+            ]);
+            //redirect apabila berhasil bersama dengan alert-nya
+            return redirect()->route('todo.index')->with('successAdd','Berhasil menambahkan data ToDo!');
     }
 
     /**
@@ -46,7 +149,7 @@ class TodoController extends Controller
      */
     public function show(Todo $todo)
     {
-        //menampilkan satu data 
+        //menampilkan satu data
     }
 
     /**
@@ -55,9 +158,11 @@ class TodoController extends Controller
      * @param  \App\Models\Todo  $todo
      * @return \Illuminate\Http\Response
      */
-    public function edit(Todo $todo)
+    public function edit($id)
     {
-        // menampilkan form edit data
+        $todo = Todo::where('id', $id)->first();
+
+        return view('dashboard.edit', compact('todo'));
     }
 
     /**
@@ -67,9 +172,22 @@ class TodoController extends Controller
      * @param  \App\Models\Todo  $todo
      * @return \Illuminate\Http\Response
      */
-    public function update(Request $request, Todo $todo)
+    public function update(Request $request, $id)
     {
-        //mengubah data di database
+        $request->validate([
+            'title' => 'required|min:3',
+            'date' => 'required',
+            'description' => 'required|min:8',
+        ]);
+        Todo::where('id', $id)->update([
+            'title' => $request->title,
+            'description' => $request->description,
+            'date' => $request->date,
+            'status' => 0,
+            'user_id' => Auth::user()->id,
+
+        ]);
+        return redirect('/todo/')->with('SuksesUpdate', 'Data Berhasil Diperbarui');
     }
 
     /**
@@ -80,6 +198,11 @@ class TodoController extends Controller
      */
     public function destroy(Todo $todo)
     {
-        //buat menghapus
+          // parameter $id akan mengambil data dari path dinamis {id}
+        // cari data yang isian colmn id nya sama dengan $id yang dikirim ke path dinamis
+        // kalau ada, ambil terus hapus datanya
+        Todo::where('id', '=',$id)->delete();
+        // kalau berhasil, bakal dibalikin ke halaman list todo dengan pemberitahuan
+        return redirect()->route('todo.index')->with('successDelete', 'Berhasil menghapus data ToDo!');     
     }
 }
